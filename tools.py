@@ -1,25 +1,39 @@
 import json
 import os
 import requests
+import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
+# Load Pushover credentials safely from local .env or Streamlit Cloud secrets
 pushover_user = os.getenv("PUSHOVER_USER")
+if not pushover_user and hasattr(st, "secrets") and "PUSHOVER_USER" in st.secrets:
+    pushover_user = st.secrets["PUSHOVER_USER"]
+
 pushover_token = os.getenv("PUSHOVER_TOKEN")
+if not pushover_token and hasattr(st, "secrets") and "PUSHOVER_TOKEN" in st.secrets:
+    pushover_token = st.secrets["PUSHOVER_TOKEN"]
 
 pushover_url = "https://api.pushover.net/1/messages.json"
 
 
 def push(text):
-    requests.post(
-        pushover_url,
-        data={
-            "token": pushover_token,
-            "user": pushover_user,
-            "message": text,
-        },
-    )
+    if not pushover_user or not pushover_token:
+        print("Pushover credentials missing or not configured!", flush=True)
+        return
+    try:
+        response = requests.post(
+            pushover_url,
+            data={
+                "token": pushover_token,
+                "user": pushover_user,
+                "message": text,
+            },
+        )
+        print(f"Pushover response status: {response.status_code}", flush=True)
+    except Exception as e:
+        print(f"Failed to send Pushover notification: {e}", flush=True)
 
 
 def record_user_details(email, name="Name not provided", notes="not provided"):
@@ -28,7 +42,7 @@ def record_user_details(email, name="Name not provided", notes="not provided"):
 
 
 def record_unknown_question(question):
-    push(f"Recording {question} asked that I couldn't answer")
+    push(f"Recording question: '{question}' that I couldn't answer")
     return "OK"
 
 
