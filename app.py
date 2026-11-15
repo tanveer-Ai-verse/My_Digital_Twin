@@ -1,11 +1,9 @@
-from openai import OpenAI
-from context import TWIN_SYSTEM_PROMPT
-from tools import tools, handle_tool_calls
-from styles import CSS, JS, EXAMPLES
-from dotenv import load_dotenv
 import os
+from context import TWIN_SYSTEM_PROMPT
+from dotenv import load_dotenv
+from openai import OpenAI
 import streamlit as st
-import gradio as gr
+from tools import handle_tool_calls, tools
 
 load_dotenv(override=True)
 
@@ -22,25 +20,47 @@ openai = OpenAI(
     api_key=api_key
 )
 
-system = [{"role": "system", "content": TWIN_SYSTEM_PROMPT}]
+st.set_page_config(page_title="Digital Twin", page_icon="🤖")
+st.title("🤖 Digital Twin")
+st.caption("Talk to my AI twin about my career")
 
-def chat(message, history):
-    messages = system + history + [{"role": "user", "content": message}]
-    response = openai.chat.completions.create(model=MODEL_NAME, messages=messages, tools=tools)
-    while response.choices[0].finish_reason == "tool_calls":
-        message = response.choices[0].message
-        tool_calls = message.tool_calls
-        results = handle_tool_calls(tool_calls)
-        messages.append(message)
-        messages.extend(results)
-        response = openai.chat.completions.create(model=MODEL_NAME, messages=messages, tools=tools)
-    return response.choices[0].message.content
+# Initialize chat history in Streamlit session state
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "system", "content": TWIN_SYSTEM_PROMPT}
+    ]
 
-if __name__ == "__main__":
-    gr.ChatInterface(
-        chat,
-        examples=EXAMPLES,
-        title="Digital Twin",
-        description="Talk to my AI twin about my career",
-        chatbot=gr.Chatbot(show_label=False),
-    ).launch(css=CSS, js=JS, theme=gr.themes.Base())
+# Display prior chat messages (ignoring system prompt)
+for msg in st.session_state.messages:
+    if msg["role"] in ("user", "assistant") and msg.get("content"):
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+# Handle user input via Streamlit chat box
+if prompt := st.chat_input("Ask me anything about my experience or projects..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        response = openai.chat.completions.create(
+            model=MODEL_NAME,
+            messages=st.session_state.messages,
+            tools=tools,
+        )
+        
+        # Handle tool calls if the model invokes them
+        while response.choices[0].finish_reason == "tool_calls":
+            msg_obj = response.choices[0].message
+            results = handle_tool_calls(msg_obj.tool_calls)
+            st.session_state.messages.append(msg_obj)
+            st.session_state.messages.extend(results)
+            response = openai.chat.completions.create(
+                model=MODEL_NAME,
+                messages=st.session_state.messages,
+                tools=tools,
+            )
+
+        reply = response.choices[0].message.content
+        st.markdown(reply)
+        st.session_state.messages.append({"role": "assistant", "content": reply})
