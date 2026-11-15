@@ -30,11 +30,13 @@ if "messages" not in st.session_state:
         {"role": "system", "content": TWIN_SYSTEM_PROMPT}
     ]
 
-# Display prior chat messages (ignoring system prompt)
+# Display prior chat messages safely handling both dicts and objects
 for msg in st.session_state.messages:
-    if msg["role"] in ("user", "assistant") and msg.get("content"):
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+    content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+    if role in ("user", "assistant") and content:
+        with st.chat_message(role):
+            st.markdown(content)
 
 # Handle user input via Streamlit chat box
 if prompt := st.chat_input("Ask me anything about my experience or projects..."):
@@ -48,13 +50,30 @@ if prompt := st.chat_input("Ask me anything about my experience or projects...")
             messages=st.session_state.messages,
             tools=tools,
         )
-        
+
         # Handle tool calls if the model invokes them
         while response.choices[0].finish_reason == "tool_calls":
             msg_obj = response.choices[0].message
             results = handle_tool_calls(msg_obj.tool_calls)
-            st.session_state.messages.append(msg_obj)
+
+            # Convert assistant message + tool_calls into a clean dictionary
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": msg_obj.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg_obj.tool_calls
+                ],
+            })
             st.session_state.messages.extend(results)
+
             response = openai.chat.completions.create(
                 model=MODEL_NAME,
                 messages=st.session_state.messages,
